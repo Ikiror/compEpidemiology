@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
 from matplotlib.animation import FuncAnimation
+from matplotlib.animation import PillowWriter
 from enum import Enum
 import random
 import itertools
@@ -14,16 +15,6 @@ colormap = ListedColormap([
   "green",        # recovered (2)
   "gray"         # empty / wall 
   ])
-
-class DensityInitType(Enum):
-  POSITIVE = 0 
-  NEGATIVE = 1
-
-@dataclass
-class DesityConstructor:
-  typ:DensityInitType
-  fn:Callable # f.ex np.random.uniform or sth like that
-  args:Dict # args for above func
 
 class PersonState(Enum):
   susceptible = 0
@@ -256,7 +247,44 @@ def animate_SIR(simulation, interval=100):
     plt.show()
     return ani
       
-           
+def random_travel_and_infection(simulation, travel_prob=0.01, travel_infection_prob=0.3):
+    t = simulation.step_count
+    current = simulation.history[t]
+    m, n = simulation.gridsize
+
+    # Work on a copy so we don't interfere with iteration
+    new_frame = current.copy()
+
+    for x in range(m):
+        for y in range(n):
+            state = current[x, y]
+
+            # Skip 'empty' cells if you decide to use them later
+            if state == PersonState.empty.value:
+                continue
+
+            # Decide if this person travels
+            if random.random() < travel_prob:
+                # Pick a random destination
+                tx = random.randint(0, m - 1)
+                ty = random.randint(0, n - 1)
+                dest_state = current[tx, ty]
+
+                # If an infected person travels onto a susceptible one,
+                # there is a chance of infection at the destination.
+                if (state == PersonState.infected.value and
+                    dest_state == PersonState.susceptible.value and
+                    random.random() < travel_infection_prob):
+
+                    new_frame[tx, ty] = PersonState.infected.value
+                    # Give the new infected a timer
+                    simulation.infection_timers[tx, ty] = random.gauss(
+                        simulation.average_infection_time,
+                        simulation.infection_time_variance
+                    )
+
+    simulation.history[t] = new_frame
+               
             
 if  __name__ == '__main__':
   print("Running test simulation...")
@@ -280,10 +308,14 @@ if  __name__ == '__main__':
   #for x in range(9):
   #  print('difference\n', sim.history[x+1] - sim.history[x])
   a = sim.animate()
+  a.save("movie.gif", writer=PillowWriter(fps=10))
   
   #sir_movie = animate_SIR(sim)
   #writer = PillowWriter(fps=10)
   #sir_movie.save("sir_counts.gif", writer=writer)
+
+
+
 
 
 #plot number of people in S, I, R pop over time - HF
@@ -301,7 +333,11 @@ if  __name__ == '__main__':
 # ~ Calculate R0 and R(t) then plot R(t) over time
 # ~ Plot infected over time for different values of beta/infection_probability and alpha/average_infection_time 
 #     and infection_radius in simulation
-# ~ Add counter for times each individual got infected and plot number of infections against individuals
+# ~ Add counter for times each individual got infected and plot number of infections against individuals or histogram
+#     of number of individuals that got infected n times
 # ~ Think about how we could reflect different disease containement measures in our simulation (f.e. wearing masks, 
 #     social distancing, maybe even vaccinations)
 # ~ Is there a gain in implementing death and birth as well?
+#accept github invite to collaborate
+#make presentation
+#testing conditions for presentation: diff scenarios -> city area vs village??; etc
