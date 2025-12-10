@@ -8,6 +8,12 @@ import itertools
 from dataclasses import dataclass
 from typing import Callable, Dict
 
+colormap = ListedColormap([
+  "lightblue",   # susceptible (0)
+  "red",         # infected (1)
+  "green",        # recovered (2)
+  "gray"         # empty / wall 
+  ])
 
 class DensityInitType(Enum):
   POSITIVE = 0 
@@ -27,7 +33,7 @@ class PersonState(Enum):
 
 class SIRsimulation:
     
-    def __init__(self, gridsize, infection_radius, step_threshold, average_infection_time, infection_probability, infection_time_variance, average_recovered_time, recovered_time_variance, timestep=1):
+    def __init__(self, gridsize, infection_radius, step_threshold, average_infection_time, infection_probability, infection_time_variance, average_recovered_time, recovered_time_variance,waning_recovery=False, timestep=1):
       assert isinstance(gridsize, tuple)
       self.gridsize = gridsize  #size of grid
       self.grid = np.full(gridsize, PersonState.susceptible.value) #initialize grid based off of gridzie and fill with susceptible
@@ -41,6 +47,7 @@ class SIRsimulation:
       self.history = np.zeros((step_threshold, *gridsize)) #encodes history of each cell(individual) for each time step. x,y,timestep; think 2d w individuals and the z is time steps
       self.average_infection_time = average_infection_time
       self.infection_time_variance = infection_time_variance
+      self.waning_recovery = waning_recovery
       self.average_recovered_time = average_recovered_time
       self.recovered_time_variance = recovered_time_variance
       self.timestep = timestep
@@ -69,7 +76,6 @@ class SIRsimulation:
   
       cur_matrix[rows, cols] = PersonState.empty.value
       self.history[t] = cur_matrix
-      print(cur_matrix)
       return np.column_stack((rows, cols))
       
     def add_infected(self, number):
@@ -84,7 +90,7 @@ class SIRsimulation:
       while self.step_count < self.step_threshold-2:
         print('step', self.step_count)
         self.step()
-        self.save_frame()
+        #self.save_frame()
     
     
     def get_neighbors(self, x, y): 
@@ -99,7 +105,7 @@ class SIRsimulation:
       #infection_mask = (self.history[t]==PersonState.infected.value)
       self.history[t+1] = self.history[t]     
       
-      # update the ifection and recovery timers by substracting one timestep from each entry, then clip the values, 
+      # update the infection and recovery timers by substracting one timestep from each entry, then clip the values, 
       # so they are between 0 and 100
       self.infection_timers = self.infection_timers - self.timestep
       self.infection_timers = self.infection_timers.clip(min=0, max=100)
@@ -128,16 +134,18 @@ class SIRsimulation:
           if self.infection_timers[x,y] == 0:
             # update it's state to be recovered
             self.history[t+1][x,y] = PersonState.recovered.value
-            self.recovery_timers[x,y] = random.gauss(self.average_recovered_time, self.recovered_time_variance)
+            if self.waning_recovery == True:
+              self.recovery_timers[x,y] = random.gauss(self.average_recovered_time, self.recovered_time_variance)
       
-      # get coordinates of the individuals that are currently recovered
-      recovered_coordinates = np.argwhere(self.history[t] == PersonState.recovered.value)
-      # loop through all the recovered individuals
-      for x,y in recovered_coordinates:
-        # if the individuals recovery timer has reached 0
-        if self.recovery_timers[x,y] == 0:
-          # update it's state in the next timestep to susceptible
-          self.history[t+1][x,y] = PersonState.susceptible.value
+      if self.waning_recovery == True:
+        # get coordinates of the individuals that are currently recovered
+        recovered_coordinates = np.argwhere(self.history[t] == PersonState.recovered.value)
+        # loop through all the recovered individuals
+        for x,y in recovered_coordinates:
+          # if the individuals recovery timer has reached 0
+          if self.recovery_timers[x,y] == 0:
+            # update it's state in the next timestep to susceptible
+            self.history[t+1][x,y] = PersonState.susceptible.value
           
       self.step_count += 1 
 
@@ -167,7 +175,10 @@ class SIRsimulation:
      #      self_timer[x, y] += 1
      #      if self_timer[x, y] >= self.recovery_time:      
      #        self.grid[x, y] = PersonState.recovered
-
+    def print_frame(self):
+      fig, ax = plt.subplots()
+      im = ax.imshow(self.history[self.step_count], cmap=colormap, interpolation='nearest', vmin=0, vmax=3)
+      plt.show()
 
     def animate(self, colormap=None):
       'Make animation of the whole history'
@@ -176,12 +187,12 @@ class SIRsimulation:
         colormap = ListedColormap([
           "lightblue",   # susceptible (0)
           "red",         # infected (1)
-          "green"        # recovered (2)
+          "green",        # recovered (2)
           "gray"         # empty / wall 
           ])
 
       fig, ax = plt.subplots()
-      im = ax.imshow(self.history[0], cmap=colormap, interpolation='nearest', vmin=0, vmax=2)
+      im = ax.imshow(self.history[0], cmap=colormap, interpolation='nearest', vmin=0, vmax=3)
       ax.set_title('Cellular automata')
       ax.axis('off')
 
@@ -199,32 +210,52 @@ class SIRsimulation:
       return ani
       
 
-def plot_SIR(simulation):
-      history = simulation.history
-      T, m, n = history.shape
+def animate_SIR(simulation, interval=100):
+    history = simulation.history
+    S_counts = []
+    I_counts = []
+    R_counts = []
 
-      S_counts = []
-      I_counts = []
-      R_counts = []
-
-      for t in range(simulation.step_count + 1):
+    for t in range(simulation.step_count + 1):
         frame = history[t]
         S_counts.append(np.sum(frame == PersonState.susceptible.value))
         I_counts.append(np.sum(frame == PersonState.infected.value))
         R_counts.append(np.sum(frame == PersonState.recovered.value))
 
-        timesteps = np.arange(len(S_counts))
-        plt.figure()
-        plt.plot(timesteps, S_counts, label='Susceptible')
-        plt.plot(timesteps, I_counts, label='Infected')
-        plt.plot(timesteps, R_counts, label='Recovered')
-        plt.xlabel('Time step')
-        plt.ylabel('Number of people')
-        plt.title('SIR counts over time')
-        plt.legend()
-        plt.grid(True)
-        plt.tight_layout()
-        plt.show()
+    timesteps = np.arange(len(S_counts))
+
+    fig, ax = plt.subplots()
+    line_S, = ax.plot([], [], label='Susceptible')
+    line_I, = ax.plot([], [], label='Infected')
+    line_R, = ax.plot([], [], label='Recovered')
+
+    ax.set_xlim(0, len(S_counts))
+    ax.set_ylim(0, max(S_counts[0], I_counts[0], R_counts[0], max(S_counts + I_counts + R_counts)))
+    ax.set_xlabel('Time step')
+    ax.set_ylabel('Number of people')
+    ax.set_title('SIR counts over time')
+    ax.legend()
+    ax.grid(True)
+
+    def init():
+        line_S.set_data([], [])
+        line_I.set_data([], [])
+        line_R.set_data([], [])
+        return line_S, line_I, line_R
+
+    def update(frame):
+        x = timesteps[:frame+1]
+        line_S.set_data(x, S_counts[:frame+1])
+        line_I.set_data(x, I_counts[:frame+1])
+        line_R.set_data(x, R_counts[:frame+1])
+        return line_S, line_I, line_R
+
+    ani = FuncAnimation(fig, update, frames=len(timesteps),
+                        init_func=init, interval=interval, blit=True)
+
+    plt.show()
+    return ani
+      
            
             
 if  __name__ == '__main__':
@@ -239,23 +270,38 @@ if  __name__ == '__main__':
     average_recovered_time = 10, 
     recovered_time_variance = 2    
     )
-  from utils import gaussian_kernel
-  sim.initialize_density(gaussian_kernel(sim.gridsize, 5))
+  from kernels import gaussian_kernel, wall, negative_gaussian, multi_negative_gaussian
+  sim.initialize_density(wall(sim.gridsize, 5,40, 10, 20), 50)
+  sim.initialize_density(multi_negative_gaussian(sim.gridsize, [(10,10), (30,30), (25,25)], 10), 2000)
+  #sim.print_frame(#)
   sim.add_infected(25)
   sim.run()
-  plot_SIR(sim)
 
-  for x in range(9):
-    print('difference\n', sim.history[x+1] - sim.history[x])
+  #for x in range(9):
+  #  print('difference\n', sim.history[x+1] - sim.history[x])
   a = sim.animate()
-  a.save('movie.mp4')
+  
+  #sir_movie = animate_SIR(sim)
+  #writer = PillowWriter(fps=10)
+  #sir_movie.save("sir_counts.gif", writer=writer)
+
 
 #plot number of people in S, I, R pop over time - HF
-#beta fit to SIR -MB
+#beta fit to SIR -MB -> done
 #random travellers and infections that happen w a certain prob - HF
-#diff matrices - empty, etc. - PP
-#timer matrix for recovery time - also include waning immunity - AS
+#diff matrices - empty, etc. - P
+#timer matrix for recovery time - also include waning immunity - AS -> done
 #github - AI -> done
+#T/F for waning /recovery -> done
 
 
 
+### new things to implement
+# ~ Add true false to be able to run simulation with random travel and without
+# ~ Calculate R0 and R(t) then plot R(t) over time
+# ~ Plot infected over time for different values of beta/infection_probability and alpha/average_infection_time 
+#     and infection_radius in simulation
+# ~ Add counter for times each individual got infected and plot number of infections against individuals
+# ~ Think about how we could reflect different disease containement measures in our simulation (f.e. wearing masks, 
+#     social distancing, maybe even vaccinations)
+# ~ Is there a gain in implementing death and birth as well?
