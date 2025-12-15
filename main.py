@@ -24,7 +24,7 @@ class PersonState(Enum):
 
 class SIRsimulation:
     
-    def __init__(self, gridsize, infection_radius, step_threshold, average_infection_time, infection_probability, infection_time_variance, average_recovered_time, recovered_time_variance,waning_recovery=False, timestep=1):
+    def __init__(self, gridsize, infection_radius, step_threshold, average_infection_time, infection_probability, infection_time_variance, average_recovered_time, recovered_time_variance, waning_recovery=False, travel_TF=True, timestep=1):
       assert isinstance(gridsize, tuple)
       self.gridsize = gridsize  #size of grid
       self.grid = np.full(gridsize, PersonState.susceptible.value) #initialize grid based off of gridzie and fill with susceptible
@@ -42,6 +42,7 @@ class SIRsimulation:
       self.average_recovered_time = average_recovered_time
       self.recovered_time_variance = recovered_time_variance
       self.timestep = timestep
+      self.travel_TF = travel_TF
     
     def is_not_finished(self): #keep going if havent reach threshold and still have infected
       infected_left_over = np.any(self.grid == PersonState.infected.value)
@@ -81,6 +82,8 @@ class SIRsimulation:
       while self.step_count < self.step_threshold-2:
         print('step', self.step_count)
         self.step()
+        if self.travel_TF == True:
+          self.random_travel_and_infection(travel_prob=0.1)
         #self.save_frame()
     
     
@@ -140,36 +143,50 @@ class SIRsimulation:
           
       self.step_count += 1 
 
-    #A Different method
-    #  for (x,y), item in np.ndenumerate(self.grid):
-        #Susceptible
-     #   m, n = self.gridsize
-     #   if item is PersonState.susceptible.value:
-     #     infected_neighbors = 0
-
-     #     for dx in range(self.infection_radius + 1):
-     #       for dy in range(self.infection_radius + 1):
-     #         if dx and dy == 0:
-     #           continue
-              
-     #         nx,ny = x + dx, y + dy
-     #         if 0 <= nx < m and 0 <= ny < n:
-     #           infected_neighbors += 1
-     #
-     #     If infected_neigbors > 0:
-     #      p = 1 - (1 - self.infection_rate)
-     #      if np.random.rand() < p:      
-     #        self.grid[x, y] = PersonState.infected
-     #        self_timer[x, y] = 0
-
-     #     elif infected_neigbors > 0:
-     #      self_timer[x, y] += 1
-     #      if self_timer[x, y] >= self.recovery_time:      
-     #        self.grid[x, y] = PersonState.recovered
+    
     def print_frame(self):
       fig, ax = plt.subplots()
       im = ax.imshow(self.history[self.step_count], cmap=colormap, interpolation='nearest', vmin=0, vmax=3)
       plt.show()
+
+    def random_travel_and_infection(self, travel_prob=0.01, travel_infection_prob=0.3):
+      t = self.step_count
+      current = self.history[t]
+      m, n = self.gridsize
+
+      # Work on a copy so we don't interfere with iteration
+      new_frame = current.copy()
+
+      for x in range(m):
+        for y in range(n):
+            state = current[x, y]
+
+            # Skip 'empty' cells if you decide to use them later
+            if state == PersonState.empty.value:
+                continue
+
+            # Decide if this person travels
+            if random.random() < travel_prob:
+                # Pick a random destination
+                tx = random.randint(0, m - 1)
+                ty = random.randint(0, n - 1)
+                dest_state = current[tx, ty]
+
+                # If an infected person travels onto a susceptible one,
+                # there is a chance of infection at the destination.
+                if (state == PersonState.infected.value and
+                    dest_state == PersonState.susceptible.value and
+                    random.random() < travel_infection_prob):
+
+                    new_frame[tx, ty] = PersonState.infected.value
+                    # Give the new infected a timer
+                    self.infection_timers[tx, ty] = random.gauss(
+                        self.average_infection_time,
+                        self.infection_time_variance
+                    )
+
+      self.history[t] = new_frame
+
 
     def animate(self, colormap=None):
       'Make animation of the whole history'
@@ -247,43 +264,7 @@ def animate_SIR(simulation, interval=100):
     plt.show()
     return ani
       
-def random_travel_and_infection(simulation, travel_prob=0.01, travel_infection_prob=0.3):
-    t = simulation.step_count
-    current = simulation.history[t]
-    m, n = simulation.gridsize
 
-    # Work on a copy so we don't interfere with iteration
-    new_frame = current.copy()
-
-    for x in range(m):
-        for y in range(n):
-            state = current[x, y]
-
-            # Skip 'empty' cells if you decide to use them later
-            if state == PersonState.empty.value:
-                continue
-
-            # Decide if this person travels
-            if random.random() < travel_prob:
-                # Pick a random destination
-                tx = random.randint(0, m - 1)
-                ty = random.randint(0, n - 1)
-                dest_state = current[tx, ty]
-
-                # If an infected person travels onto a susceptible one,
-                # there is a chance of infection at the destination.
-                if (state == PersonState.infected.value and
-                    dest_state == PersonState.susceptible.value and
-                    random.random() < travel_infection_prob):
-
-                    new_frame[tx, ty] = PersonState.infected.value
-                    # Give the new infected a timer
-                    simulation.infection_timers[tx, ty] = random.gauss(
-                        simulation.average_infection_time,
-                        simulation.infection_time_variance
-                    )
-
-    simulation.history[t] = new_frame
                
             
 if  __name__ == '__main__':
@@ -296,7 +277,9 @@ if  __name__ == '__main__':
     infection_probability=0.1,
     infection_time_variance=2,
     average_recovered_time = 10, 
-    recovered_time_variance = 2    
+    recovered_time_variance = 2,
+    waning_recovery=True,
+    travel_TF = True   
     )
   from kernels import gaussian_kernel, wall, negative_gaussian, multi_negative_gaussian
   sim.initialize_density(wall(sim.gridsize, 5,40, 10, 20), 50)
@@ -310,8 +293,8 @@ if  __name__ == '__main__':
   a = sim.animate()
   a.save("movie.gif", writer=PillowWriter(fps=10))
   
-  #sir_movie = animate_SIR(sim)
-  #writer = PillowWriter(fps=10)
+  sir_movie = animate_SIR(sim)
+  writer = PillowWriter(fps=10)
   #sir_movie.save("sir_counts.gif", writer=writer)
 
 
@@ -329,15 +312,9 @@ if  __name__ == '__main__':
 
 
 ### new things to implement
-# ~ Add true false to be able to run simulation with random travel and without
 # ~ Calculate R0 and R(t) then plot R(t) over time
 # ~ Plot infected over time for different values of beta/infection_probability and alpha/average_infection_time 
 #     and infection_radius in simulation
-# ~ Add counter for times each individual got infected and plot number of infections against individuals or histogram
-#     of number of individuals that got infected n times
 # ~ Think about how we could reflect different disease containement measures in our simulation (f.e. wearing masks, 
 #     social distancing, maybe even vaccinations)
-# ~ Is there a gain in implementing death and birth as well?
-#accept github invite to collaborate
-#make presentation
 #testing conditions for presentation: diff scenarios -> city area vs village??; etc
