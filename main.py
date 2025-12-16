@@ -24,7 +24,7 @@ class PersonState(Enum):
 
 class SIRsimulation:
     
-    def __init__(self, gridsize, infection_radius, step_threshold, average_infection_time, infection_probability, infection_time_variance, average_recovered_time, recovered_time_variance, waning_recovery=False, travel_TF=True, timestep=1):
+    def __init__(self, gridsize, infection_radius, step_threshold, average_infection_time, infection_probability, infection_time_variance, average_recovered_time, recovered_time_variance, travel_prob, travel_infection_prob, waning_recovery=False, travel_TF=True, timestep=1):
       assert isinstance(gridsize, tuple)
       self.gridsize = gridsize  #size of grid
       self.grid = np.full(gridsize, PersonState.susceptible.value) #initialize grid based off of gridzie and fill with susceptible
@@ -34,6 +34,9 @@ class SIRsimulation:
       self.infection_radius = infection_radius #how far an indi can infect
       self.step_threshold = step_threshold #max # of time steps to go through
       self.step_count = 0 #number of time steps
+
+      self.travel_prob = travel_prob
+      self.travel_infection_prob = travel_infection_prob 
       
       self.history = np.zeros((step_threshold, *gridsize)) #encodes history of each cell(individual) for each time step. x,y,timestep; think 2d w individuals and the z is time steps
       self.average_infection_time = average_infection_time
@@ -83,7 +86,7 @@ class SIRsimulation:
         print('step', self.step_count)
         self.step()
         if self.travel_TF == True:
-          self.random_travel_and_infection(travel_prob=0.1)
+          self.random_travel_and_infection()
         #self.save_frame()
     
     
@@ -149,7 +152,7 @@ class SIRsimulation:
       im = ax.imshow(self.history[self.step_count], cmap=colormap, interpolation='nearest', vmin=0, vmax=3)
       plt.show()
 
-    def random_travel_and_infection(self, travel_prob=0.01, travel_infection_prob=0.3):
+    def random_travel_and_infection(self):
       t = self.step_count
       current = self.history[t]
       m, n = self.gridsize
@@ -166,7 +169,7 @@ class SIRsimulation:
                 continue
 
             # Decide if this person travels
-            if random.random() < travel_prob:
+            if random.random() < self.travel_prob:
                 # Pick a random destination
                 tx = random.randint(0, m - 1)
                 ty = random.randint(0, n - 1)
@@ -176,7 +179,7 @@ class SIRsimulation:
                 # there is a chance of infection at the destination.
                 if (state == PersonState.infected.value and
                     dest_state == PersonState.susceptible.value and
-                    random.random() < travel_infection_prob):
+                    random.random() < self.travel_infection_prob):
 
                     new_frame[tx, ty] = PersonState.infected.value
                     # Give the new infected a timer
@@ -223,40 +226,62 @@ def animate_SIR(simulation, interval=100):
     S_counts = []
     I_counts = []
     R_counts = []
+    I_prev1 = [0]
+    I_prev2 = [0,0]
 
     for t in range(simulation.step_count + 1):
         frame = history[t]
         S_counts.append(np.sum(frame == PersonState.susceptible.value))
         I_counts.append(np.sum(frame == PersonState.infected.value))
         R_counts.append(np.sum(frame == PersonState.recovered.value))
+    I_prev1[1:len(I_counts[0:-1])] = I_counts[0:-1]
+    I_prev2[2:len(I_counts[0:-2])] = I_counts[0:-2]
+    Rt_counts1 = [i/(j+0.01) for i,j in zip(I_counts, I_prev1)]
+    Rt_counts2 = [i/(j+0.01) for i,j in zip(I_counts, I_prev2)]
 
     timesteps = np.arange(len(S_counts))
 
-    fig, ax = plt.subplots()
-    line_S, = ax.plot([], [], label='Susceptible')
-    line_I, = ax.plot([], [], label='Infected')
-    line_R, = ax.plot([], [], label='Recovered')
+    fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(12, 5))
+    ax1 = ax[0]
+    ax2 = ax[1]
+    line_S, = ax1.plot([], [], label='Susceptible')
+    line_I, = ax1.plot([], [], label='Infected')
+    line_R, = ax1.plot([], [], label='Recovered')
+    line_Rt1, = ax2.plot([], [], label='delta(t) = 1')
+    line_Rt2, = ax2.plot([], [], label='delta(t) = 2')
 
-    ax.set_xlim(0, len(S_counts))
-    ax.set_ylim(0, max(S_counts[0], I_counts[0], R_counts[0], max(S_counts + I_counts + R_counts)))
-    ax.set_xlabel('Time step')
-    ax.set_ylabel('Number of people')
-    ax.set_title('SIR counts over time')
-    ax.legend()
-    ax.grid(True)
+    ax1.set_xlim(0, len(S_counts))
+    ax1.set_ylim(0, max(S_counts[0], I_counts[0], R_counts[0], max(S_counts + I_counts + R_counts)))
+    ax1.set_xlabel('Time step')
+    ax1.set_ylabel('Number of people')
+    ax1.set_title('SIR counts over time')
+    ax1.legend()
+    ax1.grid(True)
+
+    ax2.set_xlim(0, len(S_counts))
+    ax2.set_ylim(0, 5)
+    ax2.set_xlabel('Time')
+    ax2.set_ylabel('R(t)')
+    ax2.set_title('Basic reproduction number')
+    ax2.legend()
+    ax2.grid(True)
 
     def init():
         line_S.set_data([], [])
         line_I.set_data([], [])
         line_R.set_data([], [])
-        return line_S, line_I, line_R
+        line_Rt1.set_data([], [])
+        line_Rt2.set_data([], [])
+        return line_S, line_I, line_R, line_Rt1, line_Rt2
 
     def update(frame):
         x = timesteps[:frame+1]
         line_S.set_data(x, S_counts[:frame+1])
         line_I.set_data(x, I_counts[:frame+1])
         line_R.set_data(x, R_counts[:frame+1])
-        return line_S, line_I, line_R
+        line_Rt1.set_data(x, Rt_counts1[:frame+1])
+        line_Rt2.set_data(x, Rt_counts2[:frame+1])
+        return line_S, line_I, line_R, line_Rt1, line_Rt2
 
     ani = FuncAnimation(fig, update, frames=len(timesteps),
                         init_func=init, interval=interval, blit=True)
@@ -270,14 +295,16 @@ def animate_SIR(simulation, interval=100):
 if  __name__ == '__main__':
   print("Running test simulation...")
   sim = SIRsimulation(
-    gridsize=(50,50),
+    gridsize=(100,100),
     infection_radius=1,
-    step_threshold=100,
+    step_threshold=200,
     average_infection_time=5,
     infection_probability=0.1,
     infection_time_variance=2,
-    average_recovered_time = 10, 
-    recovered_time_variance = 2,
+    average_recovered_time = 20, 
+    recovered_time_variance = 4,
+    travel_prob=0.1, 
+    travel_infection_prob=0.1,
     waning_recovery=True,
     travel_TF = True   
     )
@@ -285,7 +312,7 @@ if  __name__ == '__main__':
   sim.initialize_density(wall(sim.gridsize, 5,40, 10, 20), 50)
   sim.initialize_density(multi_negative_gaussian(sim.gridsize, [(10,10), (30,30), (25,25)], 10), 2000)
   #sim.print_frame(#)
-  sim.add_infected(25)
+  sim.add_infected(1)
   sim.run()
 
   #for x in range(9):
@@ -312,7 +339,7 @@ if  __name__ == '__main__':
 
 
 ### new things to implement
-# ~ Calculate R0 and R(t) then plot R(t) over time
+# ~ Calculate R0 and R(t) then plot R(t) over time -> Rt plot is done
 # ~ Plot infected over time for different values of beta/infection_probability and alpha/average_infection_time 
 #     and infection_radius in simulation
 # ~ Think about how we could reflect different disease containement measures in our simulation (f.e. wearing masks, 
