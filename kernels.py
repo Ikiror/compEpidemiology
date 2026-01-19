@@ -1,6 +1,6 @@
 
 import numpy as np      
-
+np.random.seed(92)
 def gaussian_kernel(shape, sigma, center=None):
     h, w = shape
     if center is None:

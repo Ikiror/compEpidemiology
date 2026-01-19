@@ -8,6 +8,7 @@ import random
 import itertools
 from dataclasses import dataclass
 from typing import Callable, Dict
+random.seed(92)
 
 colormap = ListedColormap([
   "lightblue",   # susceptible (0)
@@ -110,7 +111,7 @@ class SIRsimulation:
       
     def run(self):
       while self.step_count < self.step_threshold-2:
-        print('step', self.step_count)
+        #print('step', self.step_count)
         self.apply_rules()
         self.step()
         if self.travel_TF == True:
@@ -302,6 +303,7 @@ class SIRsimulation:
       
       ani = FuncAnimation(fig,update, frames=T, init_func=init, interval = 10, blit=True)
       #plt.show()
+      plt.close(fig)
       return ani
       
 
