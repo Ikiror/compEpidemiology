@@ -92,3 +92,27 @@ def multi_negative_gaussian(grid_size, centers, sigma):
 def uniform_kernel(grid_size):
     h, w = grid_size
     return np.ones((h, w), float)
+
+
+def cake_kernel(*layers):
+    ret = np.random.rand(*layers[0][0])
+    for size, pl in layers[1:]:
+        new = np.random.rand(*size)
+        ret = np.stack([ret, np.clip(new + pl, 0, 1)], axis=0)
+        #ret = ret + np.clip(new + pl, 0, 1)
+    return ret
+
+import numpy as np
+
+def cake_kernel(width, *row_blocks):
+    """
+    width: number of columns
+    row_blocks: (num_rows, (low, high)) per block
+    """
+    rows = []
+
+    for n_rows, (low, high) in row_blocks:
+        block = np.random.uniform(low, high, size=(n_rows, width))
+        rows.append(block)
+
+    return np.vstack(rows)

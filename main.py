@@ -22,9 +22,26 @@ class PersonState(Enum):
   recovered = 2
   empty = 3
 
+
+def change_stuff(self):
+  print('changing stuff')
+  self.infection_radius = 4
+
+def dec_infection_probability(self):
+  print('changing stuff')
+  self.infection_probability = 0.075
+
+def reduce_travel(self):
+  print('reduce traveling')
+  self.travel_prob = self.travel_prob * 0.01
+
+def increase_infection_prob(self):
+  print('increase infection probability')
+  self.infection_probability = self.infection_probability * 2
+
 class SIRsimulation:
     
-    def __init__(self, gridsize, infection_radius, step_threshold, average_infection_time, infection_probability, infection_time_variance, average_recovered_time, recovered_time_variance, travel_prob, travel_infection_prob, waning_recovery=False, travel_TF=True, timestep=1):
+    def __init__(self, gridsize=(200,200), infection_radius=1, step_threshold=800, average_infection_time=10, infection_probability=0.05, infection_time_variance=4, average_recovered_time=60, recovered_time_variance=15, travel_prob=0.01, waning_recovery=False, travel_TF=True, timestep=1, rules=None):
       assert isinstance(gridsize, tuple)
       self.gridsize = gridsize  #size of grid
       self.grid = np.full(gridsize, PersonState.susceptible.value) #initialize grid based off of gridzie and fill with susceptible
@@ -35,9 +52,11 @@ class SIRsimulation:
       self.step_threshold = step_threshold #max # of time steps to go through
       self.step_count = 0 #number of time steps
 
+      self.rules = rules
+      # rules: { timestep -> func }
+
       self.travel_prob = travel_prob
-      self.travel_infection_prob = travel_infection_prob 
-      
+      self.travel_infection_prob = self.infection_probability
       self.history = np.zeros((step_threshold, *gridsize)) #encodes history of each cell(individual) for each time step. x,y,timestep; think 2d w individuals and the z is time steps
       self.average_infection_time = average_infection_time
       self.infection_time_variance = infection_time_variance
@@ -51,7 +70,11 @@ class SIRsimulation:
       infected_left_over = np.any(self.grid == PersonState.infected.value)
       return (self.step_count < self.step_threshold) and infected_left_over
     
-    def initialize_density(self, kernel, n_points=30):
+    def initialize_density(self, kernel, n_points=None, proc_points=None):
+      assert proc_points is not None or n_points is not None
+      if proc_points is not None:
+        n_points = int(self.gridsize[0]*self.gridsize[1]*proc_points)
+
       t = self.step_count
       cur_matrix = self.history[t]
       assert kernel.shape == cur_matrix.shape
@@ -81,9 +104,14 @@ class SIRsimulation:
         self.grid[x, y] = PersonState.infected.value
         self.infection_timers[x, y] = random.gauss(self.average_infection_time, self.infection_time_variance)
     
+    def apply_rules(self):
+      if self.rules and self.step_count in self.rules.keys():
+        self.rules[self.step_count](self)
+      
     def run(self):
       while self.step_count < self.step_threshold-2:
         print('step', self.step_count)
+        self.apply_rules()
         self.step()
         if self.travel_TF == True:
           self.random_travel_and_infection()
@@ -202,135 +230,105 @@ class SIRsimulation:
           "gray"         # empty / wall 
           ])
 
-      fig, ax = plt.subplots()
-      im = ax.imshow(self.history[0], cmap=colormap, interpolation='nearest', vmin=0, vmax=3)
-      ax.set_title('Cellular automata')
-      ax.axis('off')
+      fig, ax = plt.subplots(nrows=1, ncols=3, figsize=(17,5))
+      ax0 = ax[0]
+      im = ax0.imshow(self.history[0], cmap=colormap, interpolation='nearest', vmin=0, vmax=3)
+      #ax0.set_title('')
+      #ax0.axis('off')
 
-      def init():
-        im.set_data(self.history[0])
-        return (im,)
-      
-      def update(frame):
-        im.set_data(self.history[frame])
-        ax.set_title(f't={frame}')
-        return (im,)
-      
-      ani = FuncAnimation(fig,update, frames=T, init_func=init, interval = 100, blit=True)
-      plt.show()
-      return ani
-      
+      history = self.history
+      S_counts = []
+      I_counts = []
+      R_counts = []
+      I_prev1 = [0]
+      I_prev2 = [0,0]
 
-def animate_SIR(simulation, interval=100):
-    history = simulation.history
-    S_counts = []
-    I_counts = []
-    R_counts = []
-    I_prev1 = [0]
-    I_prev2 = [0,0]
-
-    for t in range(simulation.step_count + 1):
+      for t in range(self.step_count + 1):
         frame = history[t]
         S_counts.append(np.sum(frame == PersonState.susceptible.value))
         I_counts.append(np.sum(frame == PersonState.infected.value))
         R_counts.append(np.sum(frame == PersonState.recovered.value))
-    I_prev1[1:len(I_counts[0:-1])] = I_counts[0:-1]
-    I_prev2[2:len(I_counts[0:-2])] = I_counts[0:-2]
-    Rt_counts1 = [i/(j+0.01) for i,j in zip(I_counts, I_prev1)]
-    Rt_counts2 = [i/(j+0.01) for i,j in zip(I_counts, I_prev2)]
+      I_prev1[1:len(I_counts[0:-1])] = I_counts[0:-1]
+      I_prev2[2:len(I_counts[0:-2])] = I_counts[0:-2]
+      Rt_counts1 = [i/(j+0.01) for i,j in zip(I_counts, I_prev1)]
+      Rt_counts2 = [i/(j+0.01) for i,j in zip(I_counts, I_prev2)]
 
-    timesteps = np.arange(len(S_counts))
+      timesteps = np.arange(len(S_counts))
 
-    fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(12, 5))
-    ax1 = ax[0]
-    ax2 = ax[1]
-    line_S, = ax1.plot([], [], label='Susceptible')
-    line_I, = ax1.plot([], [], label='Infected')
-    line_R, = ax1.plot([], [], label='Recovered')
-    line_Rt1, = ax2.plot([], [], label='delta(t) = 1')
-    line_Rt2, = ax2.plot([], [], label='delta(t) = 2')
+      ax1 = ax[1]
+      ax2 = ax[2]
+      line_S, = ax1.plot([], [], label='Susceptible')
+      line_I, = ax1.plot([], [], label='Infected')
+      line_R, = ax1.plot([], [], label='Recovered')
+      line_Rt1, = ax2.plot([], [], label='delta(t) = 1')
+      line_Rt2, = ax2.plot([], [], label='delta(t) = 2')
 
-    ax1.set_xlim(0, len(S_counts))
-    ax1.set_ylim(0, max(S_counts[0], I_counts[0], R_counts[0], max(S_counts + I_counts + R_counts)))
-    ax1.set_xlabel('Time step')
-    ax1.set_ylabel('Number of people')
-    ax1.set_title('SIR counts over time')
-    ax1.legend()
-    ax1.grid(True)
+      ax1.set_xlim(0, len(S_counts))
+      ax1.set_ylim(0, max(S_counts[0], I_counts[0], R_counts[0], max(S_counts + I_counts + R_counts)))
+      ax1.set_xlabel('Time step')
+      ax1.set_ylabel('Number of people')
+      ax1.set_title(f'SIR counts over time')
+      ax1.legend()
+      ax1.grid(True)
 
-    ax2.set_xlim(0, len(S_counts))
-    ax2.set_ylim(0, 5)
-    ax2.set_xlabel('Time')
-    ax2.set_ylabel('R(t)')
-    ax2.set_title('Basic reproduction number')
-    ax2.legend()
-    ax2.grid(True)
+      ax2.set_xlim(0, len(S_counts))
+      ax2.set_ylim(0, 5)
+      ax2.set_xlabel('Time')
+      ax2.set_ylabel('R(t)')
+      ax2.set_title('Basic reproduction number')
+      ax2.legend()
+      ax2.grid(True)
 
-    def init():
+
+      def init():
+        im.set_data(self.history[0])
         line_S.set_data([], [])
         line_I.set_data([], [])
         line_R.set_data([], [])
         line_Rt1.set_data([], [])
         line_Rt2.set_data([], [])
-        return line_S, line_I, line_R, line_Rt1, line_Rt2
-
-    def update(frame):
+        return im, line_S, line_I, line_R, line_Rt1, line_Rt2
+      
+      def update(frame):
+        im.set_data(self.history[frame])
+        ax0.set_title(frame)
         x = timesteps[:frame+1]
         line_S.set_data(x, S_counts[:frame+1])
         line_I.set_data(x, I_counts[:frame+1])
         line_R.set_data(x, R_counts[:frame+1])
         line_Rt1.set_data(x, Rt_counts1[:frame+1])
         line_Rt2.set_data(x, Rt_counts2[:frame+1])
-        return line_S, line_I, line_R, line_Rt1, line_Rt2
-
-    ani = FuncAnimation(fig, update, frames=len(timesteps),
-                        init_func=init, interval=interval, blit=True)
-
-    plt.show()
-    return ani
+        return im, line_S, line_I, line_R, line_Rt1, line_Rt2
       
+      ani = FuncAnimation(fig,update, frames=T, init_func=init, interval = 10, blit=True)
+      #plt.show()
+      return ani
+      
+
 
                
             
 if  __name__ == '__main__':
   print("Running test simulation...")
-  sim = SIRsimulation(
-    gridsize=(100,100),
-    infection_radius=1,
-    step_threshold=200,
-    average_infection_time=5,
-    infection_probability=0.1,
-    infection_time_variance=2,
-    average_recovered_time = 20, 
-    recovered_time_variance = 4,
-    travel_prob=0.1, 
-    travel_infection_prob=0.1,
-    waning_recovery=True,
-    travel_TF = True   
-    )
+  sim = SIRsimulation(waning_recovery=True)
   from kernels import gaussian_kernel, wall, negative_gaussian, multi_negative_gaussian
-  sim.initialize_density(wall(sim.gridsize, 5,40, 10, 20), 50)
-  sim.initialize_density(multi_negative_gaussian(sim.gridsize, [(10,10), (30,30), (25,25)], 10), 2000)
-  #sim.print_frame(#)
-  sim.add_infected(1)
+  sim.initialize_density(wall(sim.gridsize, 5,40, 10, 20), n_points=50)
+  sim.initialize_density(multi_negative_gaussian(sim.gridsize, [(40,40), (160,160)], 40), proc_points=0.3)
+  sim.add_infected(10)
   sim.run()
 
-  #for x in range(9):
-  #  print('difference\n', sim.history[x+1] - sim.history[x])
+
   a = sim.animate()
   a.save("movie.gif", writer=PillowWriter(fps=10))
   
-  sir_movie = animate_SIR(sim)
-  writer = PillowWriter(fps=10)
-  #sir_movie.save("sir_counts.gif", writer=writer)
 
 
 
 
 
-#plot number of people in S, I, R pop over time - HF
+#plot number of people in S, I, R pop over time - HF -> done
 #beta fit to SIR -MB -> done
-#random travellers and infections that happen w a certain prob - HF
+#random travellers and infections that happen w a certain prob - HF -> done
 #diff matrices - empty, etc. - P
 #timer matrix for recovery time - also include waning immunity - AS -> done
 #github - AI -> done
@@ -345,3 +343,5 @@ if  __name__ == '__main__':
 # ~ Think about how we could reflect different disease containement measures in our simulation (f.e. wearing masks, 
 #     social distancing, maybe even vaccinations)
 #testing conditions for presentation: diff scenarios -> city area vs village??; etc
+
+
