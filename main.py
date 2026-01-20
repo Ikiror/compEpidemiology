@@ -176,9 +176,9 @@ class SIRsimulation:
       self.step_count += 1 
 
     
-    def print_frame(self):
+    def print_frame(self, **kwargs):
       fig, ax = plt.subplots()
-      im = ax.imshow(self.history[self.step_count], cmap=colormap, interpolation='nearest', vmin=0, vmax=3)
+      im = ax.imshow(self.history[self.step_count], cmap=colormap, interpolation='nearest', vmin=0, vmax=3, **kwargs)
       plt.show()
 
     def random_travel_and_infection(self):
@@ -232,6 +232,7 @@ class SIRsimulation:
           ])
 
       fig, ax = plt.subplots(nrows=1, ncols=3, figsize=(17,5))
+      fig.set_dpi(50)
       ax0 = ax[0]
       im = ax0.imshow(self.history[0], cmap=colormap, interpolation='nearest', vmin=0, vmax=3)
       #ax0.set_title('')
@@ -305,10 +306,6 @@ class SIRsimulation:
       #plt.show()
       plt.close(fig)
       return ani
-      
-
-
-               
             
 if  __name__ == '__main__':
   print("Running test simulation...")
